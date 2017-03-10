@@ -1,0 +1,15 @@
+[VLC]
+path = C:/Program Files (x86)/VideoLAN/VLC/vlc.exe
+host = localhost
+port = 4555
+
+[LIBRARY]
+path1 = E:/Users/Alana/Documents/Videos
+path2 = 
+
+[GOOGLE]
+developer_key = AIzaSyA7wBCWTSFP0CHxBXFIGCRwzjruqesa-BA
+
+[SERVER]
+port = 1234
+
