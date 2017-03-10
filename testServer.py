@@ -24,9 +24,20 @@ class MyHandler(BaseHTTPRequestHandler):
         handleCommand(args)
 
 
-def vlc_sock_send(command):
+def vlcSockSend(command, recv=True):
     print("sending vlc command %s" % command)
     vlc_sock.sendall(command.encode())
+    if recv:
+        vlcSockRecv(2048)
+    
+def vlcSockRecv(bytes):
+    try:
+        value = vlc_sock.recv(bytes)
+        value = value.decode()
+    except Exception:
+        value = ""
+        
+    return value
 
 def handleCommand(args):
     if "youtube" in args:
@@ -35,17 +46,17 @@ def handleCommand(args):
     elif "youtubePlaylist" in args:
         playFromYoutube(args["youtubePlaylist"][0], queryType = "playlist")
     elif "stop" in args:
-        vlc_sock_send("pause\n")
+        vlcSockSend("pause\n")
     elif "resume" in args:
-        vlc_sock_send("pause\n")
+        vlcSockSend("pause\n")
     elif "fullscreen" in args:
-        vlc_sock_send("f\n")
+        vlcSockSend("f\n")
     elif "next" in args:
-        vlc_sock_send("next\n")
+        vlcSockSend("next\n")
     elif "prev" in args:
-        vlc_sock_send("prev\n")
+        vlcSockSend("prev\n")
     elif "volume" in args:
-        vlc_sock_send("volume %s\n" % args["volume"][0])
+        vlcSockSend("volume %s\n" % args["volume"][0])
     elif "plex" in args:
         showName = args["plex"][0]
         seasonNum = args["seasonNum"][0]
@@ -58,16 +69,22 @@ def handleCommand(args):
         playLatest(args["plexLatest"][0])
     elif "movie" in args:
         playMovie(args["movie"][0])
-    elif "sec" in args:
-        fastForward(args["sec"][0])
-
+    elif "forwardSecs" in args:
+        fastForward(int(args["forwardSecs"][0]))
+    elif "rewindSecs" in args:
+        rewind(int(args["rewindSecs"][0]))
+    elif "volumeUp" in args:
+        vlcSockSend("volup %s\n" % args["volumeUp"][0])
+    elif "volumeDown" in args:
+        vlcSockSend("voldown %s\n" % args["volumeDown"][0])
+        
 def playLatest(showName):
     show = library.find_show(showName)
     episodeList = library.list_episode_paths(show)
     if not len(episodeList) == 0:
-        vlc_sock_send("clear\nrandom off\n")
+        vlcSockSend("clear\nrandom off\n")
         for mediaPath in episodeList:
-            vlc_sock_send("add %s\n" % mediaPath)
+            vlcSockSend("add %s\n" % mediaPath)
 
 def playMovie(movieQuery):
     """
@@ -77,24 +94,42 @@ def playMovie(movieQuery):
     """
     movie = library.find_movie_path(movieQuery)
     if movie is not None:
-        message = "clear\nrandom off\n"
-        vlc_sock.sendall(message.encode())
-        message = "add %s\n" % movie
-        vlc_sock.sendall(message.encode())
+        vlcSockSend("clear\nrandom off\n")
+        vlcSockSend("add %s\n" % movie)
 
+def getTime():
+    vlcSockSend("get_time\n", False)
+    result = vlcSockRecv(100)
+    
+    while len(result) == 0 or len(result) > 5:
+        result = vlcSockRecv(100)
+    
+    try:
+        time = int(result)
+    except Exception:
+        time = 0
+        
+    return time
+    
 def fastForward(seconds):
-    if seconds is not None:
-        vlc_sock_send("seek %d")
+    time = getTime()
+    time += seconds
+    vlcSockSend("seek %d\n" % time)
+        
+def rewind(seconds):
+    time = getTime()
+    time -= seconds
+    vlcSockSend("seek %d\n" % time)               
 
 def shuffleFromLibrary(showName):
     show = library.find_show(showName)
     episodeList = library.list_episode_paths(show)
     print(episodeList)
     if not len(episodeList) == 0:
-        vlc_sock_send("clear\nrandom on\n")
+        vlcSockSend("clear\nrandom on\n")
         random.shuffle(episodeList, random.random)
         for mediaPath in episodeList:
-            vlc_sock_send("add %s\n" % mediaPath)
+            vlcSockSend("add %s\n" % mediaPath)
         
 
 def playFromLibrary(showName, seasonNum, episodeNum):
@@ -102,12 +137,11 @@ def playFromLibrary(showName, seasonNum, episodeNum):
     index, episodeList = library.index_search(show, int(seasonNum), int(episodeNum))
     print(index, episodeList)
     if not len(episodeList) == 0:
-        vlc_sock_send("clear \nrandom off\n")
-        vlc_sock_send("add %s\n")
+        vlcSockSend("clear \nrandom off\n")
+        vlcSockSend("add %s\n")
         truncatedList = episodeList[index + 1:]
         for mediaPath in truncatedList:
-            vlc_sock_send("enqueue %s\n" % mediaPath)
-
+            vlcSockSend("enqueue %s\n" % mediaPath)
 
 def playFromYoutube(query, queryType = "video"):
     print(query, queryType)
@@ -123,16 +157,15 @@ def playFromYoutube(query, queryType = "video"):
 
 
 def playYoutubeVideos(videoIds):
-    message = "clear\nrandom off\n"
-    vlc_sock.sendall(message.encode())
+    vlcSockSend("clear\nrandom off\n")
 
     if not len(videoIds) == 0:
         videoUrl = "http://youtube.com/watch?v=%s" % videoIds[0]
-        vlc_sock_send("add %s \n" % videoUrl)
+        vlcSockSend("add %s \n" % videoUrl)
 
     for videoId in videoIds[1:]:
         videoUrl = "http://youtube.com/watch?v=%s" % videoId
-        vlc_sock_send("enqueue %s \n" % videoUrl)
+        vlcSockSend("enqueue %s \n" % videoUrl)
 
 def playYoutubePlaylist(playlistId):
     response = youtube.playlistItems().list(part="id,snippet", playlistId=playlistId, maxResults = 50).execute()
@@ -150,11 +183,9 @@ config = configparser.ConfigParser()
 config.read("config")
 
 # open VLC
-print(config["VLC"]["path"])
 host_port = "%s:%s" % (config["VLC"]["host"], config["VLC"]["port"])
-print(host_port)
 
-vlc = Popen([config["VLC"]["path"], "-I", "qt", "--extraintf", "rc", "--rc-host", host_port])
+vlc = Popen([config["VLC"]["path"], "-I", "qt", "--extraintf", "rc", "--rc-host", host_port], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
 # init youtube api
 youtube = build("youtube", "v3", developerKey = config["GOOGLE"]["developer_key"])
@@ -166,7 +197,16 @@ library = MediaLibrary(pathPrefix)
 # init socket to VLC
 vlc_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 vlc_sock.connect((config["VLC"]["host"], int(config["VLC"]["port"])))
+vlc_sock.setblocking(0)
 
 # init server
 httpd = socketserver.TCPServer(("", int(config["SERVER"]["port"])), MyHandler)
 httpd.serve_forever()
+
+# Lans' test interface (comment out init server lines)
+#while 1:
+#    cmd = input(">")
+#    args = cmd.split(" ")
+#    argdict = dict()
+#    argdict[args[0]] = [args[1]]
+#    handleCommand(argdict)
