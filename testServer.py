@@ -1,3 +1,11 @@
+"""
+Get and set access to master volume example.
+"""
+from __future__ import print_function
+from ctypes import cast, POINTER
+from comtypes import CLSCTX_ALL
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, ISimpleAudioVolume
+
 import socketserver
 from urllib.parse import urlparse
 import os
@@ -85,6 +93,15 @@ def handleCommand(args):
         closeVLC()
     elif "connect" in args:
         connectVLC()
+    elif "windowsVolume" in args:
+        devices = AudioUtilities.GetSpeakers()
+        interface = devices.Activate(
+        IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        volume = cast(interface, POINTER(IAudioEndpointVolume))
+        print("volume.GetMute(): %s" % volume.GetMute())
+        print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
+        volume.SetMasterVolumeLevelScalar(float(args["windowsVolume"][0]), None)
+        print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
         
 def playLatest(showName):
     show = library.find_show(showName)
