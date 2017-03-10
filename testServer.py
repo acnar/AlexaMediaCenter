@@ -25,12 +25,14 @@ class MyHandler(BaseHTTPRequestHandler):
 
 
 def vlcSockSend(command, recv=True):
+    global vlc_sock
     print("sending vlc command %s" % command)
     vlc_sock.sendall(command.encode())
     if recv:
         vlcSockRecv(2048)
     
 def vlcSockRecv(bytes):
+    global vlc_sock
     try:
         value = vlc_sock.recv(bytes)
         value = value.decode()
@@ -77,6 +79,12 @@ def handleCommand(args):
         vlcSockSend("volup %s\n" % args["volumeUp"][0])
     elif "volumeDown" in args:
         vlcSockSend("voldown %s\n" % args["volumeDown"][0])
+    elif "open" in args:
+        openVLC()
+    elif "close" in args:
+        closeVLC()
+    elif "connect" in args:
+        connectVLC()
         
 def playLatest(showName):
     show = library.find_show(showName)
@@ -121,6 +129,34 @@ def rewind(seconds):
     time -= seconds
     vlcSockSend("seek %d\n" % time)               
 
+def connectVLC():
+    global vlc_sock
+    # init socket to VLC
+    vlc_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    vlc_sock.connect((config["VLC"]["host"], int(config["VLC"]["port"])))
+    vlc_sock.setblocking(0)
+    
+def openVLC():
+    global vlc_sock
+    try:
+        vlc_sock.close()
+    except Exception:
+        pass
+        
+    # open VLC
+    host_port = "%s:%s" % (config["VLC"]["host"], config["VLC"]["port"])
+    vlc = Popen([config["VLC"]["path"], "-I", "qt", "--extraintf", "rc", "--rc-host", host_port], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+    connectVLC()
+    
+def closeVLC():
+    global vlc_sock
+    try:
+        vlcSockSend("quit\n")
+        vlc_sock.close()
+    except Exception as e:
+        print(e)
+    
 def shuffleFromLibrary(showName):
     show = library.find_show(showName)
     episodeList = library.list_episode_paths(show)
@@ -177,15 +213,12 @@ def playYoutubePlaylist(playlistId):
     playYoutubeVideos(videoIds)
 
 # MAIN
+global vlc
+global vlc_sock
 
 # read config file
 config = configparser.ConfigParser()
 config.read("config")
-
-# open VLC
-host_port = "%s:%s" % (config["VLC"]["host"], config["VLC"]["port"])
-
-vlc = Popen([config["VLC"]["path"], "-I", "qt", "--extraintf", "rc", "--rc-host", host_port], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
 # init youtube api
 youtube = build("youtube", "v3", developerKey = config["GOOGLE"]["developer_key"])
@@ -193,11 +226,6 @@ youtube = build("youtube", "v3", developerKey = config["GOOGLE"]["developer_key"
 # init library
 pathPrefix = [config["LIBRARY"]["path1"],config["LIBRARY"]["path2"]]
 library = MediaLibrary(pathPrefix)
-
-# init socket to VLC
-vlc_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-vlc_sock.connect((config["VLC"]["host"], int(config["VLC"]["port"])))
-vlc_sock.setblocking(0)
 
 # init server
 httpd = socketserver.TCPServer(("", int(config["SERVER"]["port"])), MyHandler)
