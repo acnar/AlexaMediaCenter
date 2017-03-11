@@ -102,6 +102,23 @@ def handleCommand(args):
         print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
         volume.SetMasterVolumeLevelScalar(float(args["windowsVolume"][0]), None)
         print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
+    elif "windowsVolumeUp" in args:
+        devices = AudioUtilities.GetSpeakers()
+        interface = devices.Activate(
+        IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        volume = cast(interface, POINTER(IAudioEndpointVolume))
+        print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
+        volume.SetMasterVolumeLevelScalar(float(volume.GetMasterVolumeLevelScalar()) + float(args["windowsVolumeUp"][0]), None)
+        print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
+    elif "windowsVolumeDown" in args:
+        devices = AudioUtilities.GetSpeakers()
+        interface = devices.Activate(
+        IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        volume = cast(interface, POINTER(IAudioEndpointVolume))
+        print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
+        volume.SetMasterVolumeLevelScalar(float(volume.GetMasterVolumeLevelScalar()) - float(args["windowsVolumeDown"][0]), None)
+        print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
+    
         
 def playLatest(showName):
     show = library.find_show(showName)
