@@ -56,9 +56,9 @@ def handleCommand(args):
     elif "youtubePlaylist" in args:
         playFromYoutube(args["youtubePlaylist"][0], queryType = "playlist")
     elif "stop" in args:
-        vlcSockSend("pause\n")
+        pause()
     elif "resume" in args:
-        vlcSockSend("pause\n")
+        pause()
     elif "fullscreen" in args:
         vlcSockSend("f\n")
     elif "next" in args:
@@ -122,17 +122,30 @@ def playMovie(movieQuery):
         vlcSockSend("clear\nrandom off\n")
         vlcSockSend("add %s\n" % movie)
 
+def pause():
+    vlcSockSend("pause\n")
+    
 def getTime():
+    time = -1
+    pause()
+    pause()
     vlcSockSend("get_time\n", False)
     result = vlcSockRecv(100)
     
-    while len(result) == 0 or len(result) > 5:
+    while 1:
+        if result != "":
+            lines = result.split("\n")
+            for line in lines:
+                line = line.strip()
+                if len(line) > 0 and len(line) <= 5:
+                    try:
+                        time = int(line)
+                        break
+                    except Exception:
+                        pass
+            if time != -1:
+                break
         result = vlcSockRecv(100)
-    
-    try:
-        time = int(result)
-    except Exception:
-        time = 0
         
     return time
     
