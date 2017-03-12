@@ -9,15 +9,16 @@ from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, ISimpleAudioVolume
 import socketserver
 from urllib.parse import urlparse
 import os
+import time
 import urllib
 from findInLibrary import MediaLibrary
-from subprocess import Popen, PIPE, STDOUT
+from subprocess import Popen, PIPE, STDOUT, DEVNULL, check_output
 from http.server import BaseHTTPRequestHandler
 from apiclient.discovery import build
 import random
 import socket
-import subprocess
 import configparser
+import webbrowser
         
 class MyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -94,31 +95,37 @@ def handleCommand(args):
     elif "connect" in args:
         connectVLC()
     elif "windowsVolume" in args:
-        devices = AudioUtilities.GetSpeakers()
-        interface = devices.Activate(
-        IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-        volume = cast(interface, POINTER(IAudioEndpointVolume))
         print("volume.GetMute(): %s" % volume.GetMute())
-        print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
-        volume.SetMasterVolumeLevelScalar(float(args["windowsVolume"][0]), None)
-        print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
+        setWindowsVolume(float(args["windowsVolume"][0]))
     elif "windowsVolumeUp" in args:
-        devices = AudioUtilities.GetSpeakers()
-        interface = devices.Activate(
-        IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-        volume = cast(interface, POINTER(IAudioEndpointVolume))
-        print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
-        volume.SetMasterVolumeLevelScalar(float(volume.GetMasterVolumeLevelScalar()) + float(args["windowsVolumeUp"][0]), None)
-        print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
+        setWindowsVolume(float(args["windowsVolumeUp"][0]), False)
     elif "windowsVolumeDown" in args:
-        devices = AudioUtilities.GetSpeakers()
-        interface = devices.Activate(
-        IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-        volume = cast(interface, POINTER(IAudioEndpointVolume))
-        print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
-        volume.SetMasterVolumeLevelScalar(float(volume.GetMasterVolumeLevelScalar()) - float(args["windowsVolumeDown"][0]), None)
-        print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
+        setWindowsVolume(-1 * float(args["windowsVolumeDown"][0]), False)
+    elif "sleep" in args:
+        windowsCMD("%windir%/System32/rundll32.exe powrprof.dll,SetSuspendState 0,1,0")
+    elif "hibernate" in args:
+        windowsCMD("%windir%/System32/rundll32.exe powrprof.dll,SetSuspendState Hibernate")
+    elif "search" in args:
+        query =  args["search"][0]
+        print("googling %s\n" % query)
+        #googleSearch(query) # this is to get a string of results from google api
+        webbrowser.open('https://www.google.com/search?q=%s' % query) # this opens google search in default browser
+    elif "imageSearch" in args:
+        query =  args["imageSearch"][0]
+        print("searching google images for %s\n" % query)
+        webbrowser.open('https://www.google.com/images?q=%s' % query) # this opens google search in default browser
     
+def windowsCMD(cmd):
+    print(check_output(cmd, shell=True).decode())
+
+def setWindowsVolume(vol, absolute=True):
+    if not absolute:
+        newVol = float(volume.GetMasterVolumeLevelScalar()) + vol
+    else:
+        newVol = vol
+    print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
+    volume.SetMasterVolumeLevelScalar(newVol, None)
+    print("volume.GetMasterVolumeLevelScalar(): %s" % volume.GetMasterVolumeLevelScalar())
         
 def playLatest(showName):
     show = library.find_show(showName)
@@ -149,19 +156,30 @@ def getTime():
     vlcSockSend("get_time\n", False)
     result = vlcSockRecv(100)
     
+    # keep trying to receive output until we get the time
     while 1:
         if result != "":
+            # output may have multiple lines - split the string into lines
             lines = result.split("\n")
             for line in lines:
+                # get rid of the white space at the start and end of line
                 line = line.strip()
+                # if it is a time, it should be between 1 and 5 characters
                 if len(line) > 0 and len(line) <= 5:
                     try:
+                        # check if the value is an integer by trying to cast
                         time = int(line)
+                        # if we get here, the conversion succeeded, break out of for loop
                         break
                     except Exception:
+                        # exception thrown during conversion - not an int, try to
+                        # receive output again
                         pass
             if time != -1:
+                # got the time value, break out of while 1 loop
                 break
+                
+        # still haven't broken out of while 1 loop, try to receive output again
         result = vlcSockRecv(100)
         
     return time
@@ -179,12 +197,28 @@ def rewind(seconds):
 def connectVLC():
     global vlc_sock
     # init socket to VLC
+    try:
+        vlc_sock.close()
+    except Exception:
+        pass
+        
     vlc_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     vlc_sock.connect((config["VLC"]["host"], int(config["VLC"]["port"])))
     vlc_sock.setblocking(0)
     
+def googleSearch(query):
+    res = customSearch.cse().list(
+      q=query,
+      cx=config["GOOGLE"]["search_engine_id"],
+      num=1,
+      safe='off',
+    ).execute()
+    print(res)
+
 def openVLC():
     global vlc_sock
+    
+    retries = 3
     try:
         vlc_sock.close()
     except Exception:
@@ -192,9 +226,18 @@ def openVLC():
         
     # open VLC
     host_port = "%s:%s" % (config["VLC"]["host"], config["VLC"]["port"])
-    vlc = Popen([config["VLC"]["path"], "-I", "qt", "--extraintf", "rc", "--rc-host", host_port], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+    vlc = Popen([config["VLC"]["path"], "-I", "qt", "--extraintf", "rc", "--rc-host", host_port, "--rc-quiet"], stdout=DEVNULL, stderr=STDOUT)
 
-    connectVLC()
+    while retries > 0:
+        try:
+            connectVLC()
+            break
+        except Exception as e:
+            retries -= 1
+            if retries > 0:
+                time.sleep(1)
+            else:
+                print("Could not connect to VLC (%s).  Try again later with connect command.\n" % e)
     
 def closeVLC():
     global vlc_sock
@@ -267,13 +310,20 @@ global vlc_sock
 config = configparser.ConfigParser()
 config.read("config")
 
-# init youtube api
+# init google apis
 youtube = build("youtube", "v3", developerKey = config["GOOGLE"]["developer_key"])
+#customSearch = build("customsearch", "v1", developerKey = config["GOOGLE"]["developer_key"])
 
 # init library
 pathPrefix = [config["LIBRARY"]["path1"],config["LIBRARY"]["path2"]]
 library = MediaLibrary(pathPrefix)
 
+# init windows volume interface
+devices = AudioUtilities.GetSpeakers()
+interface = devices.Activate(
+IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+volume = cast(interface, POINTER(IAudioEndpointVolume))
+        
 # init server
 httpd = socketserver.TCPServer(("", int(config["SERVER"]["port"])), MyHandler)
 httpd.serve_forever()
